@@ -49,6 +49,18 @@ public class CellState
 
 public class Board
 {
+    private static readonly Rule[] RulesForSolving = [
+        new ThreeInARowRule(),
+        new NoSquares(),
+        new MaxPerRowColumn(),
+        new CountPerSection(),
+    ];
+    private static readonly Rule[] RulesForCreating = [
+        new ThreeInARowRule(),
+        new NoSquares(),
+        new MaxPerRowColumn(),
+    ];
+
     public CellState[,] Cells { get; }
     public Rule[] Rules { get; }
 
@@ -93,7 +105,7 @@ public class Board
         }
     }
 
-    private Board(string[] startingValues, int[,] sections, int[] xPerSection)
+    private Board(string[] startingValues, int[,] sections, int[] xPerSection, Rule[] rules)
     {
         int size = startingValues.GetLength(0);
         int stringSize = (
@@ -138,13 +150,6 @@ public class Board
             }
         }
 
-        var rules = new Rule[]
-        {
-            new ThreeInARowRule(),
-            new NoSquares(),
-            new MaxPerRowColumn(),
-            new CountPerSection(),
-        };
         Cells = cells;
         Rules = rules;
 
@@ -191,6 +196,7 @@ public class Board
             Console.WriteLine();
         }
         Console.WriteLine(new string('-', (Size * 2) - 1));
+
         for (int i = 0; i < Size; i++)
         {
             for (int j = 0; j < Size; j++)
@@ -198,6 +204,12 @@ public class Board
                 Console.Write($"{Sections[i, j]:000} ");
             }
             Console.WriteLine();
+        }
+        Console.WriteLine(new string('-', (Size * 2) - 1));
+
+        for (int i = 0; i < XPerSection.Length; i++)
+        {
+            Console.WriteLine($"Section {i}: Xs={XPerSection[i]}, Os={OPerSection[i]}, Total={SectionCount[i]}");
         }
         Console.WriteLine(new string('-', (Size * 2) - 1));
 
@@ -236,7 +248,47 @@ public class Board
         Print();
     }
 
-    private bool InnerBruteForceSolve(int i, int j)
+    private bool InnerBruteForceSolveForX(int i, int j, Random random)
+    {
+        if (this[i, j].CanX)
+        {
+            int value = this[i, j].Value;
+            this[i, j].SetX();
+            var canBuild = InnerBruteForceSolve(i + 1, j, random);
+            if (canBuild)
+            {
+                return true;
+            }
+            else
+            {
+                this[i, j].Value = value;
+                ApplyRules();
+            }
+        }
+        return false;
+    }
+
+    private bool InnerBruteForceSolveForO(int i, int j, Random random)
+    {
+        if (this[i, j].CanO)
+        {
+            int value = this[i, j].Value;
+            this[i, j].SetO();
+            var canBuild = InnerBruteForceSolve(i + 1, j, random);
+            if (canBuild)
+            {
+                return true;
+            }
+            else
+            {
+                this[i, j].Value = value;
+                ApplyRules();
+            }
+        }
+        return false;
+    }
+
+    private bool InnerBruteForceSolve(int i, int j, Random random)
     {
         if (i == Size)
         {
@@ -250,40 +302,31 @@ public class Board
 
         if (this[i, j].IsX || this[i, j].IsO)
         {
-            return InnerBruteForceSolve(i + 1, j);
+            return InnerBruteForceSolve(i + 1, j, random);
         }
         else
         {
             ApplyRules();
-            if (this[i, j].CanX)
+            if (random.NextDouble() < 0.5)
             {
-                int value = this[i, j].Value;
-                this[i, j].SetX();
-                var canBuild = InnerBruteForceSolve(i + 1, j);
+                bool canBuild;
+                canBuild = InnerBruteForceSolveForX(i, j, random);
                 if (canBuild)
-                {
                     return true;
-                }
-                else
-                {
-                    this[i, j].Value = value;
-                    ApplyRules();
-                }
+                canBuild = InnerBruteForceSolveForO(i, j, random);
+                if (canBuild)
+                    return true;
             }
-            if (this[i, j].CanO)
+            else
             {
-                int value = this[i, j].Value;
-                this[i, j].SetO();
-                var canBuild = InnerBruteForceSolve(i + 1, j);
+
+                bool canBuild;
+                canBuild = InnerBruteForceSolveForO(i, j, random);
                 if (canBuild)
-                {
                     return true;
-                }
-                else
-                {
-                    this[i, j].Value = value;
-                    ApplyRules();
-                }
+                canBuild = InnerBruteForceSolveForX(i, j, random);
+                if (canBuild)
+                    return true;
             }
         }
         return false;
@@ -339,28 +382,16 @@ public class Board
         }
     }
 
-    public static Board? Create(int[,] sections, int[] xPerSection)
-    {
-        int size = sections.GetLength(0);
-        string[] startingValues = new string[size];
-        for (int i = 0; i < size; i++)
-        {
-            startingValues[i] = new string('.', size);
-        }
-        Board board = new Board(startingValues, sections, xPerSection);
-        return board;
-    }
-
     public static Board? BruteForceSolve(string[] startingValues, int[,] sections, int[] xPerSection)
     {
-        Board board = new Board(startingValues, sections, xPerSection);
-        bool solved = board.InnerBruteForceSolve(0, 0);
+        Board board = new Board(startingValues, sections, xPerSection, RulesForSolving);
+        bool solved = board.InnerBruteForceSolve(0, 0, new Random(0));
         return solved ? board : null;
     }
 
     public static Board? LogicSolve(string[] startingValues, int[,] sections, int[] xPerSection)
     {
-        Board board = new Board(startingValues, sections, xPerSection);
+        Board board = new Board(startingValues, sections, xPerSection, RulesForSolving);
         bool solved = board.InnerLogicSolve();
         return solved ? board : null;
     }
@@ -442,13 +473,32 @@ public class Board
     {
         Random random = seed != null ? new Random(seed.Value) : new Random();
 
-        int sectionCount = random.Next(size, size * 2);
+        int sectionCount = random.Next(size + size / 2, size * 2 + size / 2);
         int maxValuesPerSection = (size * size) / sectionCount;
         int[,] sections = new int[size, size];
         int[] xPerSection = new int[sectionCount];
 
         FillRandomSections(random, sections, sectionCount, maxValuesPerSection);
 
-        return Create(sections, xPerSection);
+        string[] startingValues = new string[size];
+        for (int i = 0; i < size; i++)
+        {
+            startingValues[i] = new string('.', size);
+        }
+        Board board = new Board(startingValues, sections, xPerSection, RulesForCreating);
+
+        bool solved = board.InnerBruteForceSolve(0, 0, random);
+        for (int i = 0; i < size; i++)
+        {
+            for (int j = 0; j < size; j++)
+            {
+                if (board.Cells[i, j].IsX)
+                {
+                    xPerSection[sections[i, j]]++;
+                }
+            }
+        }
+
+        return solved ? board : null;
     }
 }
